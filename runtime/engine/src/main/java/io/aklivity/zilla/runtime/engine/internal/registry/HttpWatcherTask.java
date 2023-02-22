@@ -14,7 +14,7 @@ import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -32,7 +32,7 @@ public class HttpWatcherTask extends WatcherTask
     private final Map<URI, String> etags;
     private final Map<URI, byte[]> configHashes;
     private final Map<URI, CompletableFuture<Void>> futures;
-    private final Queue<URI> configWatcherQueue;
+    private final BlockingQueue<URI> configWatcherQueue;
     private final ScheduledExecutorService executor;
     //If server does not support long-polling use this interval
     private final int pollIntervalSeconds;
@@ -52,16 +52,13 @@ public class HttpWatcherTask extends WatcherTask
     }
 
     @Override
-    public Void call()
+    public Void call() throws InterruptedException
     {
         while (!closed)
         {
-            if (!configWatcherQueue.isEmpty())
-            {
-                URI configURI = configWatcherQueue.poll();
-                String etag = etags.getOrDefault(configURI, "");
-                sendAsync(configURI, etag);
-            }
+            URI configURI = configWatcherQueue.take();
+            String etag = etags.getOrDefault(configURI, "");
+            sendAsync(configURI, etag);
         }
         return null;
     }
@@ -125,10 +122,10 @@ public class HttpWatcherTask extends WatcherTask
             .headers("If-None-Match", etag, "Prefer", "wait=86400")
             .uri(configURI)
             .build();
-        HttpResponse<String> response;
+        HttpResponse<byte[]> response;
         try
         {
-            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
         }
         catch (Exception ex)
         {
@@ -151,10 +148,38 @@ public class HttpWatcherTask extends WatcherTask
             .headers("If-None-Match", etag, "Prefer", "wait=86400")
             .uri(configURI)
             .build();
-        CompletableFuture<Void> future = client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+        CompletableFuture<Void> future = client.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
             .thenAccept(this::handleConfigChange)
             .exceptionally(ex -> handleException(ex, configURI));
         futures.put(configURI, future);
+    }
+
+    public static String toCurlCommand(HttpRequest request)
+    {
+        StringBuilder sb = new StringBuilder("curl -v ");
+
+        // Add method
+        sb.append("-X ").append(request.method()).append(" ");
+
+        // Add headers
+        request.headers().map().forEach((name, values) ->
+        {
+            values.forEach(value ->
+            {
+                sb.append("-H '").append(name).append(": ").append(value).append("' ");
+            });
+        });
+
+        // Add body
+        request.bodyPublisher().ifPresent(body ->
+        {
+            sb.append("-d '").append(body).append("' ");
+        });
+
+        // Add URL
+        sb.append("'").append(request.uri()).append("'");
+
+        return sb.toString();
     }
 
     private Void handleException(
@@ -166,8 +191,9 @@ public class HttpWatcherTask extends WatcherTask
     }
 
     private NamespaceConfig handleConfigChange(
-        HttpResponse<String> response)
+        HttpResponse<byte[]> response)
     {
+        System.out.println("config change called");
         NamespaceConfig config = null;
         try
         {
@@ -186,7 +212,7 @@ public class HttpWatcherTask extends WatcherTask
             else
             {
                 Optional<String> etagOptional = response.headers().firstValue("Etag");
-                String configText = response.body();
+                String configText = new String(response.body());
 
                 if (etagOptional.isPresent())
                 {
