@@ -154,34 +154,6 @@ public class HttpWatcherTask extends WatcherTask
         futures.put(configURI, future);
     }
 
-    public static String toCurlCommand(HttpRequest request)
-    {
-        StringBuilder sb = new StringBuilder("curl -v ");
-
-        // Add method
-        sb.append("-X ").append(request.method()).append(" ");
-
-        // Add headers
-        request.headers().map().forEach((name, values) ->
-        {
-            values.forEach(value ->
-            {
-                sb.append("-H '").append(name).append(": ").append(value).append("' ");
-            });
-        });
-
-        // Add body
-        request.bodyPublisher().ifPresent(body ->
-        {
-            sb.append("-d '").append(body).append("' ");
-        });
-
-        // Add URL
-        sb.append("'").append(request.uri()).append("'");
-
-        return sb.toString();
-    }
-
     private Void handleException(
         Throwable throwable,
         URI configURI)
@@ -193,7 +165,6 @@ public class HttpWatcherTask extends WatcherTask
     private NamespaceConfig handleConfigChange(
         HttpResponse<byte[]> response)
     {
-        System.out.println("config change called");
         NamespaceConfig config = null;
         try
         {
