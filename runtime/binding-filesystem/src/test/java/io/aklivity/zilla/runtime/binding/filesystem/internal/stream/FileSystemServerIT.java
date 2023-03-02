@@ -97,8 +97,7 @@ public class FileSystemServerIT
         Path target = filesDirectory.resolve("index_modify.html");
 
         Files.move(source, target, ATOMIC_MOVE);
-        k3po.notifyBarrier("FILE_MODIFIED");
-
+        Thread.sleep(1000);
         k3po.finish();
     }
 
@@ -153,7 +152,7 @@ public class FileSystemServerIT
         File linkFile = new File(String.valueOf(linkData));
         linkFile.delete();
         Files.createSymbolicLink(linkData, targetFileAfter);
-        k3po.notifyBarrier("FILE_MODIFIED");
+        Thread.sleep(1000);
 
         k3po.finish();
     }
@@ -178,13 +177,13 @@ public class FileSystemServerIT
         Files.createSymbolicLink(link, targetFileAfter);
 
         // Wait for registering the new watched directories.
-        Thread.sleep(2000);
+        Thread.sleep(1000);
 
         Path source = filesDirectory.resolve("index_actual_after.html");
         Path target = filesDirectory.resolve("symlink/index.html");
 
         Files.move(source, target, ATOMIC_MOVE);
-        k3po.notifyBarrier("FILE_MODIFIED");
+        Thread.sleep(1000);
 
         k3po.finish();
     }
