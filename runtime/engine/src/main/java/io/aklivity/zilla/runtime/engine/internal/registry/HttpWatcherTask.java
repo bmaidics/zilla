@@ -18,6 +18,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +49,12 @@ public class HttpWatcherTask extends WatcherTask
         this.futures = new ConcurrentHashMap<>();
         this.configWatcherQueue = new LinkedBlockingQueue<>();
         this.pollIntervalSeconds = pollIntervalSeconds;
-        this.executor  = Executors.newSingleThreadScheduledExecutor();
+        this.executor  = Executors.newScheduledThreadPool(2);
+    }
+
+    public Future<Void> submit()
+    {
+        return executor.submit(this);
     }
 
     @Override
@@ -56,6 +62,7 @@ public class HttpWatcherTask extends WatcherTask
     {
         while (!closed)
         {
+            //TODO: change interrupted exception to CLOSE_REQUESTED constant URI
             URI configURI = configWatcherQueue.take();
             String etag = etags.getOrDefault(configURI, "");
             sendAsync(configURI, etag);
