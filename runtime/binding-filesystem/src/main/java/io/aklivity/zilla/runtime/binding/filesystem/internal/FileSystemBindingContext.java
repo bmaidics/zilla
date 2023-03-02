@@ -15,13 +15,13 @@
 package io.aklivity.zilla.runtime.binding.filesystem.internal;
 
 import static io.aklivity.zilla.runtime.engine.config.KindConfig.SERVER;
+import static java.util.concurrent.ForkJoinPool.commonPool;
 import static org.agrona.CloseHelper.quietClose;
 import static org.agrona.LangUtil.rethrowUnchecked;
 
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.ForkJoinTask;
 
 import io.aklivity.zilla.runtime.binding.filesystem.internal.stream.FileSystemServerFactory;
 import io.aklivity.zilla.runtime.binding.filesystem.internal.stream.FileSystemStreamFactory;
@@ -35,7 +35,7 @@ final class FileSystemBindingContext implements BindingContext
 {
     private final Map<KindConfig, FileSystemStreamFactory> factories;
     private final FileSystemWatcher fileSystemWatcher;
-    private final Future<Void> fileSystemWatcherRef;
+    private final ForkJoinTask<Void> fileSystemWatcherRef;
 
     FileSystemBindingContext(
         FileSystemConfiguration config,
@@ -44,8 +44,7 @@ final class FileSystemBindingContext implements BindingContext
         Map<KindConfig, FileSystemStreamFactory> factories = new EnumMap<>(KindConfig.class);
         this.factories = factories;
         this.fileSystemWatcher = new FileSystemWatcher(context.signaler());
-        //TODO: change to executor, wait for the first attach to create the watcher, close it in the last detach
-        this.fileSystemWatcherRef = Executors.newFixedThreadPool(1).submit(fileSystemWatcher);
+        this.fileSystemWatcherRef = commonPool().submit(fileSystemWatcher);
         factories.put(SERVER, new FileSystemServerFactory(config, context, fileSystemWatcher));
     }
 

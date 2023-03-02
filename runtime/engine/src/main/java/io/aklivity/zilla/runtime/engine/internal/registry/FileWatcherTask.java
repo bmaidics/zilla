@@ -17,7 +17,6 @@
 package io.aklivity.zilla.runtime.engine.internal.registry;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.concurrent.ForkJoinPool.commonPool;
 import static org.agrona.LangUtil.rethrowUnchecked;
 
 import java.io.IOException;
@@ -31,7 +30,6 @@ import java.nio.file.WatchService;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 
 import io.aklivity.zilla.runtime.engine.config.NamespaceConfig;
@@ -59,12 +57,6 @@ public class FileWatcherTask extends WatcherTask
 
         this.watchService = watchService;
 
-    }
-
-    @Override
-    public Future<Void> submit()
-    {
-        return commonPool().submit(this);
     }
 
     @Override

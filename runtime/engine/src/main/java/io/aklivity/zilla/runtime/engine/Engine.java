@@ -16,6 +16,7 @@
 package io.aklivity.zilla.runtime.engine;
 
 import static java.util.concurrent.Executors.newFixedThreadPool;
+import static java.util.concurrent.ForkJoinPool.commonPool;
 import static java.util.stream.Collectors.toList;
 import static org.agrona.LangUtil.rethrowUnchecked;
 
@@ -31,7 +32,7 @@ import java.util.ServiceLoader;
 import java.util.ServiceLoader.Provider;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -80,7 +81,7 @@ public final class Engine implements AutoCloseable
     private final WatcherTask watcherTask;
     private final Map<URL, NamespaceConfig> namespaces;
     private final URL rootConfigURL;
-    private Future<Void> watcherTaskRef;
+    private ForkJoinTask<Void> watcherTaskRef;
 
     Engine(
         EngineConfiguration config,
@@ -222,7 +223,7 @@ public final class Engine implements AutoCloseable
         {
             AgentRunner.startOnThread(runner, Thread::new);
         }
-        watcherTaskRef = watcherTask.submit();
+        watcherTaskRef = commonPool().submit(watcherTask);
         watcherTask.watch(rootConfigURL).get();
     }
 
