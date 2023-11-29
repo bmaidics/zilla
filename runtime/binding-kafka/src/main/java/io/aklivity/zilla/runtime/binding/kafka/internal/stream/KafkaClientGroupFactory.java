@@ -112,6 +112,7 @@ import io.aklivity.zilla.runtime.engine.concurrent.Signaler;
 
 public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker implements BindingHandler
 {
+    private static final int GROUP_RECORD_FRAME_MAX_SIZE = 256;
     private static final short METADATA_LOWEST_VERSION = 0;
     private static final short ERROR_EXISTS = -1;
     private static final short ERROR_NONE = 0;
@@ -1218,6 +1219,7 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
         private final String groupId;
         private final String protocol;
         private final long resolvedId;
+        private final int encodeMaxBytes;
 
         private MessageConsumer sender;
         private String host;
@@ -1274,6 +1276,7 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
             this.describeClient = new DescribeClient(routedId, resolvedId, sasl, this);
             this.coordinatorClient = new CoordinatorClient(routedId, resolvedId, sasl, this);
             this.metadataBuffer = new UnsafeBuffer(new byte[2048]);
+            this.encodeMaxBytes = encodePool.slotCapacity() - GROUP_RECORD_FRAME_MAX_SIZE;
         }
 
         private void onStream(
@@ -1343,16 +1346,38 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
 
             clusterClient.doNetworkBeginIfNecessary(traceId, authorization, affinity);
 
-            doStreamWindow(traceId, 0L, 0, 0, 0);
+            doStreamWindow(traceId, 0, encodeMaxBytes);
         }
 
         private void onStreamData(
             DataFW data)
         {
-            final long traceId = data.traceId();
+            final long sequence = data.sequence();
+            final long acknowledge = data.acknowledge();
+            final long authorization = data.authorization();
             final long budgetId = data.budgetId();
+            final long traceId = data.traceId();
+            final int reserved = data.reserved();
+            final OctetsFW payload = data.payload();
 
-            coordinatorClient.doSyncGroupRequest(traceId, budgetId, data.payload());
+            assert acknowledge <= sequence;
+            assert sequence >= initialSeq;
+
+            initialSeq = sequence + reserved;
+
+            assert initialAck <= initialSeq;
+
+            if (initialSeq > initialAck + initialMax)
+            {
+                cleanupStream(traceId, ERROR_EXISTS);
+                coordinatorClient.cleanupNetwork(traceId, authorization);
+            }
+            else
+            {
+                coordinatorClient.doSyncGroupRequest(traceId, budgetId, payload);
+            }
+
+            doStreamWindow(traceId, 0, encodeMaxBytes);
         }
 
         private void onStreamEnd(
@@ -1490,6 +1515,7 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
                     .group(g -> g
                         .groupId(groupId)
                         .protocol(protocol)
+                        .instanceId(groupMembership.instanceId)
                         .timeout(timeout))
                     .build();
 
@@ -1560,9 +1586,7 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
 
         private void doStreamWindow(
             long traceId,
-            long budgetId,
             int minInitialNoAck,
-            int minInitialPad,
             int minInitialMax)
         {
             final long newInitialAck = Math.max(initialSeq - minInitialNoAck, initialAck);
@@ -1577,7 +1601,7 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
                 state = KafkaState.openedInitial(state);
 
                 doWindow(sender, originId, routedId, initialId, initialSeq, initialAck, initialMax,
-                        traceId, clusterClient.authorization, budgetId, minInitialPad);
+                    traceId, clusterClient.authorization, 0L, GROUP_RECORD_FRAME_MAX_SIZE);
             }
         }
 
@@ -4215,7 +4239,9 @@ public final class KafkaClientGroupFactory extends KafkaClientSaslHandshaker imp
             delegate.doStreamFlush(traceId, authorization,
                 ex -> ex.set((b, o, l) -> kafkaFlushExRW.wrap(b, o, l)
                     .typeId(kafkaTypeId)
-                    .group(g -> g.leaderId(leaderId)
+                    .group(g -> g
+                        .generationId(generationId)
+                        .leaderId(leaderId)
                         .memberId(memberId)
                         .members(gm -> members.forEach(m ->
                         {
