@@ -2586,38 +2586,49 @@ public class MqttKafkaSubscribeFactory implements MqttKafkaStreamFactory
                         p.partitionId(offsetType.value())
                             .partitionOffset(offsetType.value()));
                     filters.forEach(filter ->
-                    {
-                        final int maxQos = filter.qos();
-                        int additionalFilters = 0;
-                        if (maxQos == qos)
+                        m.filtersItem(f ->
                         {
-                            additionalFilters = MqttQoS.EXACTLY_ONCE.value() - qos;
-                        }
-                        for (int level = qos; level <= qos + additionalFilters; level++)
-                        {
-                            int finalLevel = level;
-                            m.filtersItem(f ->
+                            f.conditionsItem(ci -> buildHeaders(ci, filter.pattern().asString()));
+                            boolean noLocal = (filter.flags() & NO_LOCAL_FLAG) != 0;
+                            if (noLocal)
                             {
-                                f.conditionsItem(ci -> buildHeaders(ci, filter.pattern().asString()));
-                                boolean noLocal = (filter.flags() & NO_LOCAL_FLAG) != 0;
-                                if (noLocal)
+                                final DirectBuffer valueBuffer = clientId.value();
+                                f.conditionsItem(i -> i.not(n -> n.condition(c -> c.header(h ->
+                                    h.nameLen(helper.kafkaLocalHeaderName.sizeof())
+                                        .name(helper.kafkaLocalHeaderName)
+                                        .valueLen(valueBuffer.capacity())
+                                        .value(valueBuffer, 0, valueBuffer.capacity())))));
+                            }
+
+                            final int maxQos = filter.qos();
+                            if (maxQos != qos || maxQos == MqttQoS.EXACTLY_ONCE.value())
+                            {
+                                for (int level = 0; level <= MqttQoS.EXACTLY_ONCE.value(); level++)
                                 {
-                                    final DirectBuffer valueBuffer = clientId.value();
+                                    if (level != qos)
+                                    {
+                                        final DirectBuffer valueBuffer = qosNames.get(level).value();
+                                        f.conditionsItem(i -> i.not(n -> n.condition(c -> c.header(h ->
+                                            h.nameLen(helper.kafkaQosHeaderName.sizeof())
+                                                .name(helper.kafkaQosHeaderName)
+                                                .valueLen(valueBuffer.capacity())
+                                                .value(valueBuffer, 0, valueBuffer.capacity())))));
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                for (int level = 0; level < maxQos; level++)
+                                {
+                                    final DirectBuffer valueBuffer = qosNames.get(level).value();
                                     f.conditionsItem(i -> i.not(n -> n.condition(c -> c.header(h ->
-                                        h.nameLen(helper.kafkaLocalHeaderName.sizeof())
-                                            .name(helper.kafkaLocalHeaderName)
+                                        h.nameLen(helper.kafkaQosHeaderName.sizeof())
+                                            .name(helper.kafkaQosHeaderName)
                                             .valueLen(valueBuffer.capacity())
                                             .value(valueBuffer, 0, valueBuffer.capacity())))));
                                 }
-                                final DirectBuffer valueBuffer = qosNames.get(finalLevel).value();
-                                f.conditionsItem(c -> c.header(h ->
-                                    h.nameLen(helper.kafkaQosHeaderName.sizeof())
-                                    .name(helper.kafkaQosHeaderName)
-                                    .valueLen(valueBuffer.capacity())
-                                    .value(valueBuffer, 0, valueBuffer.capacity())));
-                            });
-                        }
-                    });
+                            }
+                        }));
                     m.evaluation(b -> b.set(KafkaEvaluation.EAGER));
                 })
                 .build();
