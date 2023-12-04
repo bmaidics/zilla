@@ -3403,15 +3403,11 @@ public final class MqttServerFactory implements MqttStreamFactory
                         .collect(Collectors.groupingBy(Subscription::qos))
                         .forEach((maxQos, subscriptionList) ->
                         {
-                            for (int level = 0; level <= maxQos; level++)
-                            {
-                                int qos = level;
-                                MqttSubscribeStream stream = routeSubscribes.computeIfAbsent(qos,
-                                    s -> new MqttSubscribeStream(routedId, key, implicitSubscribe, qos));
-                                stream.packetId = packetId;
-                                subscriptionList.removeIf(s -> s.reasonCode > GRANTED_QOS_2);
-                                stream.doSubscribeBeginOrFlush(traceId, affinity, subscriptionList);
-                            }
+                            MqttSubscribeStream stream = routeSubscribes.computeIfAbsent(maxQos,
+                                s -> new MqttSubscribeStream(routedId, key, implicitSubscribe, maxQos));
+                            stream.packetId = packetId;
+                            subscriptionList.removeIf(s -> s.reasonCode > GRANTED_QOS_2);
+                            stream.doSubscribeBeginOrFlush(traceId, affinity, subscriptionList);
                         });
                 });
             }
