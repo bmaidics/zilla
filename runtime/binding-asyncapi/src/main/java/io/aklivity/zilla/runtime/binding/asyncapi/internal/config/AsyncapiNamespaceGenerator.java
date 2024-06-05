@@ -67,7 +67,6 @@ public abstract class AsyncapiNamespaceGenerator
 
     protected Map<String, Asyncapi> asyncapis;
     protected boolean isTlsEnabled;
-    protected AsyncapiProtocol protocol;
     protected String qname;
     protected String namespace;
     protected String qvault;
@@ -276,8 +275,7 @@ public abstract class AsyncapiNamespaceGenerator
 
     protected  <C> BindingConfigBuilder<C> injectMetrics(
         BindingConfigBuilder<C> binding,
-        List<MetricRefConfig> metricRefs,
-        String protocol)
+        List<MetricRefConfig> metricRefs)
     {
         List<MetricRefConfig> metrics = metricRefs.stream()
             .filter(m -> m.name.startsWith("stream."))

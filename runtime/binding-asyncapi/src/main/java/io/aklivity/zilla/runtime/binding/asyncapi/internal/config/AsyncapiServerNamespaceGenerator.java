@@ -18,8 +18,11 @@ import static io.aklivity.zilla.runtime.engine.config.KindConfig.SERVER;
 import static java.util.Collections.emptyList;
 
 import java.util.List;
+import java.util.Map;
 
 import io.aklivity.zilla.runtime.binding.asyncapi.config.AsyncapiOptionsConfig;
+import io.aklivity.zilla.runtime.binding.asyncapi.internal.model.Asyncapi;
+import io.aklivity.zilla.runtime.binding.asyncapi.internal.model.AsyncapiOperation;
 import io.aklivity.zilla.runtime.binding.asyncapi.internal.view.AsyncapiServerView;
 import io.aklivity.zilla.runtime.binding.tcp.config.TcpConditionConfig;
 import io.aklivity.zilla.runtime.binding.tcp.config.TcpOptionsConfig;
@@ -29,6 +32,7 @@ import io.aklivity.zilla.runtime.engine.config.BindingConfigBuilder;
 import io.aklivity.zilla.runtime.engine.config.MetricRefConfig;
 import io.aklivity.zilla.runtime.engine.config.NamespaceConfig;
 import io.aklivity.zilla.runtime.engine.config.NamespaceConfigBuilder;
+import io.aklivity.zilla.runtime.engine.config.RouteConfigBuilder;
 
 public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
 {
@@ -41,9 +45,6 @@ public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
         final List<MetricRefConfig> metricRefs = binding.telemetryRef != null ?
             binding.telemetryRef.metricRefs : emptyList();
 
-        //TODO: keep it until we support different protocols on the same composite binding
-        AsyncapiServerView serverView = servers.get(0);
-        this.protocol = serverView.getAsyncapiProtocol();
 
         final String namespace = String.join("+", namespaceConfig.asyncapiLabels);
         return NamespaceConfig.builder()
@@ -52,15 +53,29 @@ public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
                 .inject(n -> this.injectCatalog(n, namespaceConfig.asyncapis))
                 .inject(n -> injectTcpServer(n, servers, options, metricRefs))
                 .inject(n -> injectTlsServer(n, options))
+                .inject(n -> injectProtocolServers(n, servers, metricRefs))
+                .build();
+    }
+
+    private <C> NamespaceConfigBuilder<C> injectProtocolServers(
+        NamespaceConfigBuilder<C> namespace,
+        List<AsyncapiServerView> servers,
+        List<MetricRefConfig> metricRefs)
+    {
+        for (AsyncapiServerView server : servers)
+        {
+            final AsyncapiProtocol protocol = server.getAsyncapiProtocol();
+            namespace = namespace
                 .binding()
                     .name(String.format("%s_server0", protocol.scheme))
                     .type(protocol.scheme)
-                    .inject(b -> this.injectMetrics(b, metricRefs, protocol.scheme))
+                    .inject(b -> this.injectMetrics(b, metricRefs))
                     .kind(SERVER)
-                    .inject(b -> protocol.injectProtocolServerOptions(b))
-                    .inject(b -> protocol.injectProtocolServerRoutes(b))
-                    .build()
+                    .inject(protocol::injectProtocolServerOptions)
+                    .inject(protocol::injectProtocolServerRoutes)
                 .build();
+        }
+        return  namespace;
     }
 
     private <C> NamespaceConfigBuilder<C> injectTcpServer(
@@ -86,7 +101,7 @@ public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
                 .name("tcp_server0")
                 .type("tcp")
                 .kind(SERVER)
-                .inject(b -> this.injectMetrics(b, metricRefs, "tcp"))
+                .inject(b -> this.injectMetrics(b, metricRefs))
                 .options(tcpOption)
                 .inject(b -> this.injectPlainTcpRoute(b, compositePorts))
                 .inject(b -> this.injectTlsTcpRoute(b, compositeSecurePorts, metricRefs))
@@ -95,17 +110,22 @@ public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
         return namespace;
     }
 
-    private <C> BindingConfigBuilder<C> injectPlainTcpRoute(
+    protected <C> BindingConfigBuilder<C> injectPlainTcpRoute(
         BindingConfigBuilder<C> binding,
-        int[] compositePorts)
+        List<AsyncapiServerView> servers)
     {
-        binding
-            .route()
+        for (AsyncapiServerView server : servers)
+        {
+            final RouteConfigBuilder<BindingConfigBuilder<C>> routeBuilder = binding.route();
+            final AsyncapiProtocol protocol = server.getAsyncapiProtocol();
+            final int[] compositePorts = new int[] { server.getPort() };
+            binding = routeBuilder
                 .when(TcpConditionConfig::builder)
                     .ports(compositePorts)
                     .build()
-                .exit(String.format("%s_server0", protocol.scheme))
-                .build();
+                    .exit(String.format("%s_server0", protocol.scheme))
+                    .build();
+        }
         return binding;
     }
 
@@ -117,7 +137,7 @@ public class AsyncapiServerNamespaceGenerator extends AsyncapiNamespaceGenerator
         if (isTlsEnabled)
         {
             binding
-                .inject(b -> this.injectMetrics(b, metricRefs, "tls"))
+                .inject(b -> this.injectMetrics(b, metricRefs))
                 .route()
                     .when(TcpConditionConfig::builder)
                         .ports(compositeSecurePorts)

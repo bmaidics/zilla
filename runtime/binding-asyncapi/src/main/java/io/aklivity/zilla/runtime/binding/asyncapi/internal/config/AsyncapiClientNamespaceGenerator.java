@@ -37,9 +37,6 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
         final List<MetricRefConfig> metricRefs = binding.telemetryRef != null ?
             binding.telemetryRef.metricRefs : emptyList();
 
-        //TODO: keep it until we support different protocols on the same composite binding
-        AsyncapiServerView serverView = servers.get(0);
-        this.protocol = serverView.getAsyncapiProtocol();
         int[] compositeSecurePorts = resolvePorts(servers, true);
         this.isTlsEnabled =  compositeSecurePorts.length > 0;
 
@@ -53,7 +50,7 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
                     .name(String.format("%s_client0", protocol.scheme))
                     .type(protocol.scheme)
                     .kind(CLIENT)
-                    .inject(b -> this.injectMetrics(b, metricRefs, protocol.scheme))
+                    .inject(b -> this.injectMetrics(b, metricRefs))
                     .inject(protocol::injectProtocolClientOptions)
                     .exit(isTlsEnabled ? "tls_client0" : "tcp_client0")
                     .build()
@@ -62,7 +59,7 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
                     .name("tcp_client0")
                     .type("tcp")
                     .kind(CLIENT)
-                    .inject(b -> this.injectMetrics(b, metricRefs, "tcp"))
+                    .inject(b -> this.injectMetrics(b, metricRefs))
                     .options(!protocol.scheme.equals(AyncapiKafkaProtocol.SCHEME) ? options.tcp : null)
                     .build()
                 .build();
@@ -80,7 +77,7 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
                     .name("tls_client0")
                     .type("tls")
                     .kind(CLIENT)
-                    .inject(b -> this.injectMetrics(b, metricRefs, "tls"))
+                    .inject(b -> this.injectMetrics(b, metricRefs))
                     .options(options.tls)
                     .vault(String.format("%s:%s", this.namespace, vault))
                     .exit("tcp_client0")
