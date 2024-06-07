@@ -32,8 +32,8 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
         BindingConfig binding,
         AsyncapiNamespaceConfig namespaceConfig)
     {
-        List<AsyncapiServerView> servers = namespaceConfig.servers;
-        AsyncapiOptionsConfig options = binding.options != null ? (AsyncapiOptionsConfig) binding.options : EMPTY_OPTION;
+        final List<AsyncapiServerView> servers = namespaceConfig.servers;
+        final AsyncapiOptionsConfig options = binding.options != null ? (AsyncapiOptionsConfig) binding.options : EMPTY_OPTION;
         final List<MetricRefConfig> metricRefs = binding.telemetryRef != null ?
             binding.telemetryRef.metricRefs : emptyList();
 
@@ -45,24 +45,69 @@ public class AsyncapiClientNamespaceGenerator extends AsyncapiNamespaceGenerator
                 .name(String.format("%s.%s-%s", qname, "$composite", namespace))
                 .inject(n -> this.injectNamespaceMetric(n, !metricRefs.isEmpty()))
                 .inject(n -> this.injectCatalog(n, namespaceConfig.asyncapis))
-                .inject(n -> protocol.injectProtocolClientCache(n, metricRefs))
-                .binding()
-                    .name(String.format("%s_client0", protocol.scheme))
-                    .type(protocol.scheme)
-                    .kind(CLIENT)
-                    .inject(b -> this.injectMetrics(b, metricRefs))
-                    .inject(protocol::injectProtocolClientOptions)
-                    .exit(isTlsEnabled ? "tls_client0" : "tcp_client0")
-                    .build()
-                .inject(n -> injectTlsClient(n, options, metricRefs))
+                .inject(n -> this.injectProtocolClients(n, servers, metricRefs))
+                .inject(n -> this.injectProtocolRelatedBindings(n, servers, metricRefs))
+                .inject(n -> this.injectTlsClient(n, options, metricRefs))
+                .inject(n -> this.injectTcpClient(n, servers, options, metricRefs))
+                .build();
+    }
+
+    private <C> NamespaceConfigBuilder<C> injectTcpClient(
+        NamespaceConfigBuilder<C> namespace,
+        List<AsyncapiServerView> servers,
+        AsyncapiOptionsConfig options,
+        List<MetricRefConfig> metricRefs)
+    {
+        for (AsyncapiServerView server : servers)
+        {
+            final AsyncapiProtocol protocol = server.getAsyncapiProtocol();
+            namespace = namespace
                 .binding()
                     .name("tcp_client0")
                     .type("tcp")
                     .kind(CLIENT)
                     .inject(b -> this.injectMetrics(b, metricRefs))
                     .options(!protocol.scheme.equals(AyncapiKafkaProtocol.SCHEME) ? options.tcp : null)
-                    .build()
                 .build();
+        }
+
+        return namespace;
+    }
+
+    private <C> NamespaceConfigBuilder<C> injectProtocolClients(
+        NamespaceConfigBuilder<C> namespace,
+        List<AsyncapiServerView> servers,
+        List<MetricRefConfig> metricRefs)
+    {
+        for (AsyncapiServerView server : servers)
+        {
+            final AsyncapiProtocol protocol = server.getAsyncapiProtocol();
+            final String scheme = protocol.scheme;
+            final String exit = "sse".equals(scheme) ? "http_client0" : isTlsEnabled ? "tls_client0" : "tcp_client0";
+            namespace = namespace
+                .binding()
+                    .name(String.format("%s_client0", scheme))
+                    .type(scheme)
+                    .kind(CLIENT)
+                    .inject(b -> this.injectMetrics(b, metricRefs))
+                    .inject(protocol::injectProtocolClientOptions)
+                    .exit(exit)
+                .build();
+        }
+        return  namespace;
+    }
+
+    protected <C> NamespaceConfigBuilder<C> injectProtocolRelatedBindings(
+        NamespaceConfigBuilder<C> namespace,
+        List<AsyncapiServerView> servers,
+        List<MetricRefConfig> metricRefs)
+    {
+        for (AsyncapiServerView server : servers)
+        {
+            final AsyncapiProtocol protocol = server.getAsyncapiProtocol();
+            namespace = protocol.injectProtocolRelatedClientBindings(namespace, metricRefs, isTlsEnabled);
+        }
+        return namespace;
     }
 
     private <C> NamespaceConfigBuilder<C> injectTlsClient(
